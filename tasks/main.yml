@@ -1,0 +1,70 @@
+---
+- name: Assert that the config directory is an absolute path
+  # desc: The wireguard config directory must be unmistakeable therefore absolute.
+  ansible.builtin.assert:
+    that:
+      - wireguard_config_dir is match("/")
+    success_msg: wireguard_config_dir is an absolute path.
+    fail_msg: wireguard_config_dir is not an absolute path.
+
+- name: Assert that each tunnel definition has the Address defined
+  # desc: Wireguard tunnels need an address to work.
+  ansible.builtin.assert:
+    that:
+      # - wireguard_tunnels == [] or ( wireguard_tunnels | map(attribute='Address', default='') | map('ansible.utils.ipaddr') ) is all
+      - ( (wireguard_tunnels|list) | map('extract', wireguard_tunnels) | map(attribute='Address') | map('ansible.utils.ipaddr') ) is all
+    success_msg: Each tunnel definition has a valid IP address defined.
+    fail_msg: At least one tunnel definition has not a valid IP address defined.
+
+- name: Install required packages
+  # desc: Ensure necessery OS packages for using wireguard.
+  ansible.builtin.package:
+    name: "{{ wireguard_dep_packages }}"
+    state: present
+
+- name: Create configuration directory
+  # desc: Create the configuration directoy which will hold the tunnel config files.
+  become: true
+  ansible.builtin.file:
+    owner: root
+    group: root
+    mode: "700"
+    path: "{{ wireguard_config_dir }}"
+    state: directory
+
+- name: Create systemd override directory for tunnel
+  # desc: Create the systemd directory for the systemd service so the service can be customized.
+  become: true
+  ansible.builtin.file:
+    owner: root
+    group: root
+    mode: "770"
+    path: "/etc/systemd/system/wg-quick@.service.d"
+    state: directory
+
+- name: Ensure proper startup by systemd for tunnel
+  # desc: Add the customization to the systemd service: wireguard tunnels will now start before sshd.
+  become: true
+  ansible.builtin.copy:
+    src: "systemd_override.conf"
+    dest: "/etc/systemd/system/wg-quick@.service.d/override.conf"
+    mode: "640"
+  notify: Reload systemd daemon
+
+- name: Ensure host directory under host_data directory in control node
+  # desc: When no configuration file exists, no public key has been saved yet, so we prepare for saving it by creating a facts directory.
+  delegate_to: localhost
+  become: false
+  when:
+    - wireguard_save_public_keys
+  ansible.builtin.file:
+    path: "{{ wireguard_hostdatadir_path }}/{{ inventory_hostname }}"
+    state: directory
+    mode: "751"
+
+- name: Configure tunnels
+  ansible.builtin.include_tasks: configure_tunnel.yml
+  loop: "{{ wireguard_tunnels | dict2items }}"
+  loop_control:
+    loop_var: _wireguard_tunnel_item
+...

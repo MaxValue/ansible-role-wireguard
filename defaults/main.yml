@@ -1,0 +1,18 @@
+---
+wireguard_nolog: true
+wireguard_dep_packages:
+  - wireguard
+wireguard_config_dir: "/etc/wireguard"
+wireguard_save_public_keys: true
+wireguard_hostdatadir_path: "host_data"
+wireguard_tunnels:
+  # wg0:
+  #   Address: 192.168.0.1/24
+  #   ListenPort: 51820
+  #   enabled: false
+  #   state: started
+  #   Peers:
+  #     - AllowedIPs:
+  #         - 192.168.0.2/24
+  #       PublicKey: KEYHERE
+...

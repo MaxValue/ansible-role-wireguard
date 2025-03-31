@@ -1,0 +1,1 @@
+{{ _wireguard_PublicKey.stdout | trim }}

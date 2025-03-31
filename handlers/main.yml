@@ -1,0 +1,7 @@
+---
+- name: Reload systemd daemon
+  # desc: When the override file has changed we need to make systemd know about it
+  become: true
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+...

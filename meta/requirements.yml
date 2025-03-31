@@ -1,0 +1,5 @@
+---
+collections:
+  # for the ipaddr filter:
+  - ansible.utils
+...
