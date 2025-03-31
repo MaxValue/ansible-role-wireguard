@@ -7,6 +7,8 @@ An Ansible Role that installs wireguard and configures tunnels.
 ## Requirements
 
 * [netaddr>=0.10.1](https://github.com/netaddr/netaddr)
+* [the ansible.utils collection](https://galaxy.ansible.com/ui/repo/published/ansible/utils/)
+   * install it via `ansible-galaxy collection install --force ansible.utils`
 
 ## Role Variables
 
