@@ -112,6 +112,7 @@ The internal variable `result_wireguard_tmpfile` stores the path to the temporar
                 ListenPort: 51820
                 Address: 192.168.0.1/24
                 enabled: true
+                PrivateKey: "SCR6qWVDYiwJ2dXpaqK6ByHFJHeqaMmH4MsjeApGfk4="
                 Peers:
                   - AllowedIPs:
                       - 192.168.0.2/24
