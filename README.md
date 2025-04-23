@@ -138,6 +138,7 @@ The internal variable `result_wireguard_tmpfile` stores the path to the temporar
                   - AllowedIPs:
                       - 192.168.0.2/24
                     PublicKey: "QLGVfS9r+jwqkl0iEfdyfqGIMhitmcMqsarUabvMXSY="
+                    PresharedKey: "h8pxIv1mJOG0IC89/ZbPHnOneZOVdtMyia8E1wuCrVE="
     ...
 
 ## License

@@ -80,6 +80,9 @@
       [Peer]
       PublicKey = {{ peer.PublicKey }}
       AllowedIPs = {{ peer.AllowedIPs | sort | map('ansible.utils.ipaddr','host/prefix') | join(',') }}
+      {% if peer.PresharedKey is defined %}
+      PresharedKey = {{ peer.PresharedKey }}
+      {% endif %}
 
       {% endfor %}
     marker: "# {mark} OF PEERS BLOCK MANAGED BY ANSIBLE"
