@@ -1,5 +1,4 @@
 ---
-wireguard_nolog: true
 wireguard_dep_packages:
   - wireguard
 wireguard_config_dir: "/etc/wireguard"

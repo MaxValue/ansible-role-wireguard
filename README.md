@@ -16,10 +16,6 @@ Available variables are listed below, along with default values (see `defaults/m
 
 ### Main Variables
 
-    wireguard_nolog: true
-
-The optional variable `wireguard_nolog` sets if sensitive log messages should be hidden (the private key of the tunnel).
-
     wireguard_dep_packages:
       - wireguard
 

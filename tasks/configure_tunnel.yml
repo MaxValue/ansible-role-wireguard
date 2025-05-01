@@ -10,7 +10,7 @@
 
 - name: Generate private key
   # desc: When no configuration file exists and no PrivateKey is explicitely defined, no private key exists, so we generate one.
-  no_log: "{{ wireguard_nolog }}"
+  no_log: true
   when:
     - result_wireguard_find_tunnelconfig.files | default([], false) | length == 0
     - _wireguard_tunnel_item.value.PrivateKey is undefined
@@ -24,26 +24,26 @@
   when:
     - result_wireguard_find_tunnelconfig.files | default([], false) | length == 0
     - _wireguard_tunnel_item.value.PrivateKey is undefined
-  no_log: "{{ wireguard_nolog }}"
+  no_log: true
   ansible.builtin.set_fact:
     _wireguard_PrivateKey: "{{ result_wireguard_PrivateKey.stdout | trim }}"
 
 - name: Unset private key result var
   # desc: Avoid leaking the private key somewhere.
-  no_log: "{{ wireguard_nolog }}"
+  no_log: true
   ansible.builtin.set_fact:
     result_wireguard_PrivateKey: ""
 
 - name: Set the private key var to the defined one
   # desc: Avoid leaking the private key somewhere.
   when: _wireguard_tunnel_item.value.PrivateKey is defined
-  no_log: "{{ wireguard_nolog }}"
+  no_log: true
   ansible.builtin.set_fact:
     _wireguard_PrivateKey: "{{ _wireguard_tunnel_item.value.PrivateKey }}"
 
 - name: Generate public key
   # desc: When no configuration file exists and no PrivateKey is explicitely defined, no public key exists, so we generate one from the private key.
-  no_log: "{{ wireguard_nolog }}"
+  no_log: true
   when:
     - result_wireguard_find_tunnelconfig.files | default([], false) | length == 0
     - _wireguard_tunnel_item.value.PrivateKey is undefined
@@ -67,7 +67,7 @@
 
 - name: Unset private key var
   # desc: Avoid leaking the private key somewhere.
-  no_log: "{{ wireguard_nolog }}"
+  no_log: true
   ansible.builtin.set_fact:
     _wireguard_PrivateKey: ""
 
