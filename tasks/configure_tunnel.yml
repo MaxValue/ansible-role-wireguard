@@ -79,7 +79,7 @@
       {% for peer in _wireguard_tunnel_item.value.Peers | sort(attribute='PublicKey') %}
       [Peer]
       PublicKey = {{ peer.PublicKey }}
-      AllowedIPs = {{ peer.AllowedIPs | sort | map('ansible.utils.ipaddr','host/prefix') | join(',') }}
+      AllowedIPs = {{ peer.AllowedIPs | sort | map('ansible.utils.ipaddr', 'host/prefix') | join(',') }}
       {% if peer.PresharedKey is defined %}
       PresharedKey = {{ peer.PresharedKey }}
       {% endif %}
