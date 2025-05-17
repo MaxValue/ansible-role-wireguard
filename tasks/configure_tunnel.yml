@@ -77,7 +77,7 @@
   ansible.builtin.blockinfile:
     block: |
       {% for peer in _wireguard_tunnel_item.value.Peers | sort(attribute='PublicKey') %}
-      [Peer]
+      [Peer]{% if peer.name is defined %} # Name = {{ peer.name }}{% endif +%}
       PublicKey = {{ peer.PublicKey }}
       AllowedIPs = {{ peer.AllowedIPs | sort | map('ansible.utils.ipaddr', 'host/prefix') | join(',') }}
       {% if peer.PresharedKey is defined %}
