@@ -9,6 +9,11 @@ An Ansible Role that installs wireguard and configures tunnels.
 * [netaddr>=0.10.1](https://github.com/netaddr/netaddr)
 * [the ansible.utils collection](https://galaxy.ansible.com/ui/repo/published/ansible/utils/)
    * install it via `ansible-galaxy collection install --force ansible.utils`
+* enable the Jinja extension for loop controls in your ansible.cfg:
+  ```ini
+  [defaults]
+  jinja2_extensions=jinja2.ext.loopcontrols
+  ```
 
 ## Role Variables
 
@@ -37,6 +42,10 @@ The optional variable `wireguard_hostdatadir_path` sets the path on the controll
 
 The optional variable `wireguard_tunnels` defines the tunnels to be configured.
 
+    wireguard_print_peer_configuration: true
+
+The optional variable `wireguard_print_peer_configuration` defines whether to print the needed configuration changes to permanently enable the new peer. Be aware that this can leak key information (the PresharedKey to be precise). Turn this off to hide any secrets from the logs.
+
 ### Internal variables
 
 These are variables internally created by the role.
@@ -45,13 +54,17 @@ These are variables internally created by the role.
 
 The internal variable `_wireguard_tunnel_item` stores the config for the current tunnel while looping through the defined tunnels of `wireguard_tunnels`.
 
-    _wireguard_PrivateKey
+    _wireguard_tunnel_PrivateKey
 
-The internal variable `_wireguard_PrivateKey` stores the newly generated private key of the tunnel when the tunnel did not exist before. The variable gets blanked after use.
+The internal variable `_wireguard_tunnel_PrivateKey` stores the newly generated private key of the tunnel when the tunnel did not exist before. The variable gets blanked after use.
 
-    _wireguard_PublicKey
+    _wireguard_tunnel_PublicKey
 
-The internal variable `_wireguard_PublicKey` stores the newly generated public key of the tunnel when the tunnel did not exist before. The variable gets saved to the controller if `wireguard_save_public_keys` is set to `true`.
+The internal variable `_wireguard_tunnel_PublicKey` stores the generated public key of the tunnel.
+
+    _wireguard_Peer_Address
+
+The internal variable `_wireguard_Peer_Address` stores the newly generated IP address of the new peer for the tunnel.
 
     result_wireguard_find_tunnelconfig
 
@@ -68,6 +81,18 @@ The internal variable `result_wireguard_strippedconfig` stores the cleaned wireg
     result_wireguard_tmpfile
 
 The internal variable `result_wireguard_tmpfile` stores the path to the temporary file for storing the cleaned wireguard config.
+
+    result_wireguard_peer_PrivateKey
+
+The internal variable `result_wireguard_peer_PrivateKey` stores the newly generated private key of the peer for the tunnel. The variable gets blanked after use.
+
+    result_wireguard_peer_PublicKey
+
+The internal variable `result_wireguard_peer_PublicKey` stores the newly generated public key of the peer for the tunnel.
+
+    result_wireguard_Peer_PresharedKey
+
+The internal variable `result_wireguard_Peer_PresharedKey` stores the newly generated preshared key of the peer for the tunnel. The variable gets blanked after use.
 
 ## Dependencies
 
@@ -88,7 +113,8 @@ The internal variable `result_wireguard_tmpfile` stores the path to the temporar
               wg0:
                 Address: 192.168.0.1/24
                 Peers:
-                  - AllowedIPs:
+                  - name: Nickname
+                    AllowedIPs:
                       - 192.168.0.2/24
                     PublicKey: "QLGVfS9r+jwqkl0iEfdyfqGIMhitmcMqsarUabvMXSY="
     ...
@@ -110,7 +136,8 @@ The internal variable `result_wireguard_tmpfile` stores the path to the temporar
                 enabled: true
                 PrivateKey: "SCR6qWVDYiwJ2dXpaqK6ByHFJHeqaMmH4MsjeApGfk4="
                 Peers:
-                  - AllowedIPs:
+                  - name: Nickname
+                    AllowedIPs:
                       - 192.168.0.2/24
                     PublicKey: "QLGVfS9r+jwqkl0iEfdyfqGIMhitmcMqsarUabvMXSY="
     ...
@@ -129,9 +156,11 @@ The internal variable `result_wireguard_tmpfile` stores the path to the temporar
                 state: started
                 ListenPort: 51820
                 Address: 192.168.0.1/24
+                Endpoint: my.domain.here:51820
                 enabled: true
                 Peers:
-                  - AllowedIPs:
+                  - name: Nickname
+                    AllowedIPs:
                       - 192.168.0.2/24
                     PublicKey: "QLGVfS9r+jwqkl0iEfdyfqGIMhitmcMqsarUabvMXSY="
                     PresharedKey: "h8pxIv1mJOG0IC89/ZbPHnOneZOVdtMyia8E1wuCrVE="

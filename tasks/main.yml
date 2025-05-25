@@ -18,6 +18,7 @@
 
 - name: Install required packages
   # desc: Ensure necessery OS packages for using wireguard.
+  become: true
   ansible.builtin.package:
     name: "{{ wireguard_dep_packages }}"
     state: present
@@ -58,11 +59,12 @@
   when:
     - wireguard_save_public_keys
   ansible.builtin.file:
-    path: "{{ wireguard_hostdatadir_path }}/{{ inventory_hostname }}"
+    path: "{{ [wireguard_hostdatadir_path, inventory_hostname] | path_join }}"
     state: directory
     mode: "751"
 
 - name: Configure tunnels
+  # desc: Install each defined tunnel on the remote
   ansible.builtin.include_tasks: configure_tunnel.yml
   loop: "{{ wireguard_tunnels | dict2items }}"
   loop_control:

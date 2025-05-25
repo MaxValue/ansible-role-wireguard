@@ -1,5 +1,64 @@
 ---
+- name: Validate peers
+  when: _wireguard_tunnel_item.value.Peers is defined
+  block:
+    - name: Assert that all peers have a name defined
+      # desc: Check if each peer in this tunnel config has a name defined
+      ansible.builtin.assert:
+        that:
+          _wireguard_tunnel_item.value.Peers | selectattr('name', 'undefined') | length == 0
+        fail_msg: |-
+          Some peers of tunnel {{ _wireguard_tunnel_item.key }} have no name defined:
+            {{ _wireguard_tunnel_item.value.Peers | selectattr('name', 'undefined') | join('\\n') }}
+        success_msg: All peers of tunnel {{ _wireguard_tunnel_item.key }} have a name
+
+    - name: Assert that all peers have a name with one or more characters
+      # desc: Each peer name must have non-empty value in order to be found again
+      ansible.builtin.assert:
+        that:
+          _wireguard_tunnel_item.value.Peers | rejectattr('name') | length == 0
+        fail_msg: |-
+          Some peers of tunnel {{ _wireguard_tunnel_item.key }} have no valid name defined: {{
+            _wireguard_tunnel_item.value.Peers | rejectattr('name') | join('\\n')
+          }}
+        success_msg: All peers of tunnel {{ _wireguard_tunnel_item.key }} have a valid name defined
+
+    - name: Assert that all peers have a unique name
+      # desc: Each peer name must be distinct from each other
+      ansible.builtin.assert:
+        that:
+          ( _wireguard_tunnel_item.value.Peers | map(attribute='name') | unique | length ) == ( _wireguard_tunnel_item.value.Peers | length )
+        fail_msg: |-
+          Some of these peers of tunnel {{ _wireguard_tunnel_item.key }} have no unique name defined: '{{
+            _wireguard_tunnel_item.value.Peers | map(attribute='name') | join("', '")
+          }}'
+        success_msg: All peers of tunnel {{ _wireguard_tunnel_item.key }} have a unique name defined
+
+    - name: Assert that all peers have an IP address list
+      # desc: Each peer must have IP addresses defined for the client config file to be valid
+      ansible.builtin.assert:
+        that:
+          - _wireguard_tunnel_item.value.Peers | selectattr('AllowedIPs', 'undefined') | length == 0
+        fail_msg: |-
+          Some peers of tunnel {{ _wireguard_tunnel_item.key }} have no IP address attribute: '{{
+            _wireguard_tunnel_item.value.Peers | selectattr('AllowedIPs', 'undefined') | map(attribute='name') | join("', '")
+          }}'
+        success_msg: All peers of tunnel {{ _wireguard_tunnel_item.key }} have an IP address list
+
+    - name: Assert that all peers have at least one IP address
+      # desc: Each peer must have at least one IP address for the client config file to be valid
+      ansible.builtin.assert:
+        that:
+          _wireguard_tunnel_item.value.Peers | rejectattr('AllowedIPs') | length == 0
+        fail_msg: |-
+          Some peers of tunnel {{ _wireguard_tunnel_item.key }} have not any IP address defined: '{{
+            _wireguard_tunnel_item.value.Peers | rejectattr('AllowedIPs') | map(attribute='name') | join("', '")
+          }}'
+        success_msg: All peers of tunnel {{ _wireguard_tunnel_item.key }} have at least one IP address
+
 - name: Check for existing tunnel configuration file
+  # desc: See if this tunnel is already present at the remote
+  when: _wireguard_tunnel_item.value.PrivateKey is undefined
   become: true
   ansible.builtin.find:
     file_type: file
@@ -8,75 +67,102 @@
     use_regex: true
   register: result_wireguard_find_tunnelconfig
 
+# SECTION: Generate / Serverside Keys
+- name: Get tunnel private key from server
+  # desc: When the tunnel file exists and no PrivateKey has been explicitely defined for this tunnel, try to retrieve it
+  when:
+    - result_wireguard_find_tunnelconfig.files | default([], true) | length != 0
+    - _wireguard_tunnel_item.value.PrivateKey is undefined
+  become: true
+  ansible.builtin.command:
+    cmd: >
+      gawk
+      '/^\[Interface\]/ { p = 1 } /^\[Peer\]/ { p = 0 } $1 ~ "PrivateKey" && p { print $3 }'
+      {{ [wireguard_config_dir, _wireguard_tunnel_item.key + '.conf'] | path_join | quote }}
+  changed_when: false
+  failed_when: result_wireguard_tunnel_PrivateKey_serverside.rc != 0 or result_wireguard_tunnel_PrivateKey_serverside.stdout | trim | length == 0
+  no_log: "{{ wireguard_no_log }}"
+  register: result_wireguard_tunnel_PrivateKey_serverside
+# ENDSECTION: Generate / Serverside Keys
+
 - name: Generate private key
   # desc: When no configuration file exists and no PrivateKey is explicitely defined, no private key exists, so we generate one.
-  no_log: true
+  no_log: "{{ wireguard_no_log }}"
   when:
-    - result_wireguard_find_tunnelconfig.files | default([], false) | length == 0
+    - result_wireguard_find_tunnelconfig.files | default([], true) | length == 0
     - _wireguard_tunnel_item.value.PrivateKey is undefined
   ansible.builtin.command:
     cmd: "wg genkey"
   changed_when: false
-  register: result_wireguard_PrivateKey
+  register: result_wireguard_tunnel_PrivateKey_generated
 
-- name: Set the private key var to the task result
-  # desc: Avoid leaking the private key somewhere.
-  when:
-    - result_wireguard_find_tunnelconfig.files | default([], false) | length == 0
-    - _wireguard_tunnel_item.value.PrivateKey is undefined
-  no_log: true
+- name: Set private key var
+  # desc: Define a private key variable, since it can come from different sources
+  no_log: "{{ wireguard_no_log }}"
   ansible.builtin.set_fact:
-    _wireguard_PrivateKey: "{{ result_wireguard_PrivateKey.stdout | trim }}"
-
-- name: Unset private key result var
-  # desc: Avoid leaking the private key somewhere.
-  no_log: true
-  ansible.builtin.set_fact:
-    result_wireguard_PrivateKey: ""
-
-- name: Set the private key var to the defined one
-  # desc: Avoid leaking the private key somewhere.
-  when: _wireguard_tunnel_item.value.PrivateKey is defined
-  no_log: true
-  ansible.builtin.set_fact:
-    _wireguard_PrivateKey: "{{ _wireguard_tunnel_item.value.PrivateKey }}"
+    _wireguard_tunnel_PrivateKey: |-
+      {%- if _wireguard_tunnel_item.value.PrivateKey | default('', true) | length > 0 -%}
+      {{ _wireguard_tunnel_item.value.PrivateKey | default('') }}
+      {%- elif result_wireguard_tunnel_PrivateKey_serverside.stdout | default('', true) | trim | length > 0 -%}
+      {{ result_wireguard_tunnel_PrivateKey_serverside.stdout | default('') | trim }}
+      {%- else -%}
+      {{ result_wireguard_tunnel_PrivateKey_generated.stdout | default('') | trim }}
+      {%- endif -%}
 
 - name: Generate public key
-  # desc: When no configuration file exists and no PrivateKey is explicitely defined, no public key exists, so we generate one from the private key.
-  no_log: true
+  # desc: Derives the public key from the private key
   when:
-    - result_wireguard_find_tunnelconfig.files | default([], false) | length == 0
-    - _wireguard_tunnel_item.value.PrivateKey is undefined
+    - _wireguard_tunnel_item.value.PublicKey is not defined
+    - _wireguard_tunnel_item.value.Peers | default([], true) | length > 0
+  no_log: "{{ wireguard_no_log }}"
   ansible.builtin.command:
-    stdin: "{{ _wireguard_PrivateKey }}"
+    stdin: "{{ _wireguard_tunnel_PrivateKey }}"
     cmd: "wg pubkey"
   changed_when: false
-  register: _wireguard_PublicKey
+  register: result_wireguard_tunnel_PublicKey
+
+- name: Set public key var
+  # desc: Define a private key variable, since it can come from different sources
+  ansible.builtin.set_fact:
+    _wireguard_tunnel_PublicKey: |-
+      {%- if _wireguard_tunnel_item.value.PublicKey is defined -%}
+      {{ _wireguard_tunnel_item.value.PublicKey | default('') }}
+      {%- else -%}
+      {{ result_wireguard_tunnel_PublicKey.stdout | default('') }}
+      {%- endif -%}
+
+- name: Copy peers to var
+  # desc: Create a copy of the peers list in order for it to be amended
+  ansible.builtin.set_fact:
+    peers_amended: "{{ _wireguard_tunnel_item.value.Peers | default([], true) }}"
+
+- name: Complete peers
+  # desc: Amend each peer with a public key if not defined and a preshared key if both not defined
+  ansible.builtin.include_tasks: amend_peers.yml
+  loop: "{{ _wireguard_tunnel_item.value.Peers | default([], true) }}"
+  loop_control:
+    index_var: _wireguard_peer_idx
+    loop_var: _wireguard_peer_item
 
 - name: Create tunnel configuration file
   # desc: When no configuration file exists or a PrivateKey is explicitely defined, create one with the new keys.
   become: true
   when: >-
-    ( result_wireguard_find_tunnelconfig.files | default([], false) | length == 0 ) or
-    _wireguard_tunnel_item.value.PrivateKey is defined
+    ( result_wireguard_find_tunnelconfig.files | default([], true) | length == 0 )
+    or _wireguard_tunnel_item.value.PrivateKey is defined
   ansible.builtin.template:
     src: wireguard.conf
-    dest: "{{ wireguard_config_dir }}/{{ _wireguard_tunnel_item.key }}.conf"
+    dest: "{{ [wireguard_config_dir, _wireguard_tunnel_item.key + '.conf'] | path_join }}"
     mode: "700"
   register: result_wireguard_create_tunnelconfig
 
-- name: Unset private key var
-  # desc: Avoid leaking the private key somewhere.
-  no_log: true
-  ansible.builtin.set_fact:
-    _wireguard_PrivateKey: ""
-
 - name: Configure peers for tunnel
   # desc: Peers are placed into a block so we can change them again and again, without touching the tunnel keys.
-  when: not result_wireguard_create_tunnelconfig.changed
+  when: result_wireguard_find_tunnelconfig.files | default([], true) | length != 0
+  become: true
   ansible.builtin.blockinfile:
     block: |
-      {% for peer in _wireguard_tunnel_item.value.Peers | sort(attribute='PublicKey') %}
+      {% for peer in peers_amended | sort(attribute='PublicKey') %}
       [Peer]{% if peer.name is defined %} # Name = {{ peer.name }}{% endif +%}
       PublicKey = {{ peer.PublicKey }}
       AllowedIPs = {{ peer.AllowedIPs | sort | map('ansible.utils.ipaddr', 'host/prefix') | join(',') }}
@@ -86,80 +172,49 @@
 
       {% endfor %}
     marker: "# {mark} OF PEERS BLOCK MANAGED BY ANSIBLE"
-    path: "{{ wireguard_config_dir }}/{{ _wireguard_tunnel_item.key }}.conf"
+    path: "{{ [wireguard_config_dir, _wireguard_tunnel_item.key + '.conf'] | path_join }}"
     prepend_newline: false
     state: present
   register: result_wireguard_peers
 
-- name: Save public key
-  # desc: When no configuration file exists, no public key has been saved yet, so we save it locally.
-  delegate_to: localhost
-  become: false
-  when:
-    - wireguard_save_public_keys
-    - result_wireguard_find_tunnelconfig.files | default([], false) | length == 0
-  ansible.builtin.template:
-    src: publickey.pub
-    dest: "{{ wireguard_hostdatadir_path }}/{{ inventory_hostname }}/{{ _wireguard_tunnel_item.key }}.pub"
-    mode: "640"
-
-- name: Get raw wireguard config
-  # desc: When the peers have changed and the interface is running, we have to get the new clean tunnel config.
-  become: true
+- name: Update peers of running tunnel
   when:
     - result_wireguard_peers.changed
     - _wireguard_tunnel_item.key in ansible_facts.interfaces
-    - ansible_facts[_wireguard_tunnel_item.key].active
-  ansible.builtin.command:
-    cmd: "wg-quick strip {{ _wireguard_tunnel_item.key }}"
-  changed_when: false
-  register: result_wireguard_strippedconfig
-
-- name: Create tmpfile
-  # desc: The new tunnel config needs to be stored somewhere temporarily.
+    - ansible_facts[_wireguard_tunnel_item.key].active | default(false)
   become: true
-  when:
-    - result_wireguard_peers.changed
-    - _wireguard_tunnel_item.key in ansible_facts.interfaces
-    - ansible_facts[_wireguard_tunnel_item.key].active
-  ansible.builtin.tempfile:
-    state: file
-  register: result_wireguard_tmpfile
+  block:
+    - name: Get raw wireguard config
+      # desc: When the peers have changed and the interface is running, we have to get the new clean tunnel config.
+      ansible.builtin.command:
+        cmd: "wg-quick strip {{ _wireguard_tunnel_item.key }}"
+      changed_when: false
+      register: result_wireguard_strippedconfig
 
-- name: Store raw wireguard config in tmpfile
-  # desc: The new config is stored in a temp file.
-  become: true
-  when:
-    - result_wireguard_peers.changed
-    - _wireguard_tunnel_item.key in ansible_facts.interfaces
-    - ansible_facts[_wireguard_tunnel_item.key].active
-  ansible.builtin.copy:
-    content: "{{ result_wireguard_strippedconfig.stdout }}"
-    dest: "{{ result_wireguard_tmpfile.path }}"
-    mode: "600"
+    - name: Create tmpfile
+      # desc: The new tunnel config needs to be stored somewhere temporarily.
+      ansible.builtin.tempfile:
+        state: file
+      register: result_wireguard_tmpfile
 
-- name: Add new wireguard config options to active tunnel
-  # desc: The new config is applied to the running tunnel.
-  become: true
-  when:
-    - result_wireguard_peers.changed
-    - _wireguard_tunnel_item.key in ansible_facts.interfaces
-    - ansible_facts[_wireguard_tunnel_item.key].active
-  ansible.builtin.command:
-    stdin: "{{ result_wireguard_strippedconfig.stdout }}"
-    cmd: "wg syncconf {{ _wireguard_tunnel_item.key }} {{ result_wireguard_tmpfile.path }}"
-  changed_when: result_wireguard_peers.changed
+    - name: Store raw wireguard config in tmpfile
+      # desc: The new config is stored in a temp file.
+      ansible.builtin.copy:
+        content: "{{ result_wireguard_strippedconfig.stdout }}"
+        dest: "{{ result_wireguard_tmpfile.path }}"
+        mode: "600"
 
-- name: Remove tmp file
-  # desc: After applying the new config we dont need the temp file anymore and remove it in order to only have the private key in the actual config file.
-  become: true
-  when:
-    - result_wireguard_peers.changed
-    - _wireguard_tunnel_item.key in ansible_facts.interfaces
-    - ansible_facts[_wireguard_tunnel_item.key].active
-  ansible.builtin.file:
-    dest: "{{ result_wireguard_tmpfile.path }}"
-    state: absent
+    - name: Add new wireguard config options to active tunnel
+      # desc: The new config is applied to the running tunnel.
+      ansible.builtin.command:
+        cmd: "wg syncconf {{ _wireguard_tunnel_item.key }} {{ result_wireguard_tmpfile.path }}"
+      changed_when: result_wireguard_peers.changed
+
+    - name: Remove tmp file
+      # desc: After applying the new config we dont need the temp file anymore and remove it in order to only have the private key in the actual config file.
+      ansible.builtin.file:
+        dest: "{{ result_wireguard_tmpfile.path }}"
+        state: absent
 
 - name: Configure desired systemd service state for tunnel
   # desc: The tunnel is set to its defined state.
@@ -167,5 +222,11 @@
   ansible.builtin.service:
     enabled: "{{ _wireguard_tunnel_item.value.enabled | default(false, true) }}"
     name: "wg-quick@{{ _wireguard_tunnel_item.key }}.service"
-    state: "{{ _wireguard_tunnel_item.value.state | default(omit, false) }}"
-...
+    state: "{{ _wireguard_tunnel_item.value.state | default(omit, true) }}"
+
+- name: Unset secrets
+  # desc: Avoid leaking the private or the preshared key somewhere.
+  no_log: "{{ wireguard_no_log }}"
+  ansible.builtin.set_fact:
+    result_wireguard_tunnel_PrivateKey: ""
+    _wireguard_tunnel_PrivateKey: ""

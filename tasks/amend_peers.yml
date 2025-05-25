@@ -1,0 +1,183 @@
+---
+- name: See if peer is already defined on remote
+  # desc: Looks for the name of the peer item in the tunnel config on the host
+  become: true
+  ansible.builtin.lineinfile:
+    dest: "{{ [wireguard_config_dir, _wireguard_tunnel_item.key + '.conf'] | path_join }}"
+    line: "[Peer] # Name = {{ _wireguard_peer_item.name }}"
+    regexp: "^\\[Peer\\]\\s*#\\s*Name\\s*=\\s*{{ _wireguard_peer_item.name }}\\s*$"
+  check_mode: true
+  register: result_wireguard_peer_lookup
+
+- name: Get public key from remote
+  # desc: If the peer is defined, try to retrieve the public key from the remote tunnel config
+  when:
+    - _wireguard_peer_item.PublicKey | default('', true) | length == 0
+    - result_wireguard_peer_lookup.msg == 'line replaced' or not result_wireguard_peer_lookup.changed
+  become: true
+  ansible.builtin.command:
+    cmd: |-
+      gawk
+      '/^\[Peer\] *# *Name *= *{{ _wireguard_peer_item.name }} *$/ { p = 1; next } /^\[Peer\]/ { p = 0 } $0 ~ "^PublicKey" && p { print $3 }'
+      {{ [wireguard_config_dir, _wireguard_tunnel_item.key + '.conf'] | path_join }}
+  changed_when: false
+  register: result_wireguard_peer_PublicKey_serverside
+
+- name: Generate private key
+  # desc: If the peer was not defined yet, generate the PrivateKey for the peer
+  when:
+    - _wireguard_peer_item.PublicKey | default('', true) | length == 0
+    - result_wireguard_peer_lookup.msg == 'line added'
+  no_log: "{{ wireguard_no_log }}"
+  ansible.builtin.command:
+    cmd: "wg genkey"
+  changed_when: false
+  register: result_wireguard_peer_PrivateKey
+
+- name: Generate public key
+  # desc: If the peer was not defined yet, generate the PublicKey for the peer
+  when:
+    - _wireguard_peer_item.PublicKey | default('', true) | length == 0
+    - result_wireguard_peer_lookup.msg == 'line added'
+  no_log: "{{ wireguard_no_log }}"
+  ansible.builtin.command:
+    stdin: "{{ result_wireguard_peer_PrivateKey.stdout | trim }}"
+    cmd: "wg pubkey"
+  changed_when: false
+  register: result_wireguard_peer_PublicKey_generated
+
+- name: Set public key variable
+  # desc: Define a var to store the PublicKey, since it can come from different sources
+  ansible.builtin.set_fact:
+    _wireguard_peer_PublicKey: |-
+      {%- if _wireguard_peer_item.PublicKey | default('', true) | length > 0 -%}
+      {{ _wireguard_peer_item.PublicKey | default('') }}
+      {%- elif result_wireguard_peer_PublicKey_serverside.stdout | default('', true) | trim | length > 0 -%}
+      {{ result_wireguard_peer_PublicKey_serverside.stdout | default('') | trim }}
+      {%- else -%}
+      {{ result_wireguard_peer_PublicKey_generated.stdout | default('') | trim }}
+      {%- endif -%}
+
+- name: Get preshared key from server
+  # desc: If the peer is defined, try to retrieve the preshared key from the remote tunnel config
+  when:
+    - _wireguard_peer_item.PresharedKey | default('generate', true) == 'generate'
+    - result_wireguard_peer_lookup.msg == 'line replaced' or not result_wireguard_peer_lookup.changed
+  become: true
+  ansible.builtin.command:
+    cmd: |-
+      gawk
+      '/^\[Peer\] *# *Name *= *{{ _wireguard_peer_item.name }} *$/ { p = 1; next } /^\[Peer\]/ { p = 0 } $0 ~ "^PresharedKey" && p { print $3 }'
+      {{ [wireguard_config_dir, _wireguard_tunnel_item.key + '.conf'] | path_join }}
+  changed_when: false
+  register: result_wireguard_peer_PresharedKey_serverside
+
+- name: Generate preshared key
+  # desc: Generates the PresharedKey if no public key was defined and no psk was defined or if the psk is set to generate
+  when: >-
+    (
+      _wireguard_peer_item.PublicKey | default('', true) | length == 0
+      and result_wireguard_peer_PublicKey.stdout | default('', true) | trim == ''
+      and _wireguard_peer_item.PresharedKey | default('', true) | length == 0
+      and result_wireguard_peer_PresharedKey_serverside.stdout | default('', true) | trim == ''
+    )
+    or (
+      _wireguard_peer_item.PresharedKey | default('', true) == 'generate'
+      and result_wireguard_peer_PresharedKey_serverside.stdout | default('', true) | trim == ''
+    )
+  ansible.builtin.command:
+    cmd: "wg genpsk"
+  changed_when: false
+  register: result_wireguard_peer_PresharedKey_generated
+
+- name: Set preshared key var
+  # desc: Define a var to store the PresharedKey, since it can come from different sources
+  ansible.builtin.set_fact:
+    _wireguard_peer_PresharedKey: |-
+      {%- if _wireguard_peer_item.PresharedKey | default('generate', true) != 'generate' -%}
+      {{ _wireguard_peer_item.PresharedKey | default('') }}
+      {%- elif result_wireguard_peer_PresharedKey_serverside.stdout | default('', true) | trim | length > 0 -%}
+      {{ result_wireguard_peer_PresharedKey_serverside.stdout | default('', true) | trim }}
+      {%- else -%}
+      {{ result_wireguard_peer_PresharedKey_generated.stdout | default('', true) | trim }}
+      {%- endif -%}
+
+- name: Filter AllowedIPs for the ones in the tunnel range
+  # desc: Prepare a list of usable IPs for the client config; this list is used to populate the interface address in the client config.
+  when: result_wireguard_peer_lookup.msg == 'line added'
+  ansible.builtin.set_fact:
+    _wireguard_peer_AllowedIPs_inrange: >-
+      [
+      {% for AllowedIP in _wireguard_peer_item.AllowedIPs %}
+      {% if _wireguard_tunnel_item.value.Address | ansible.utils.network_in_usable(AllowedIP) %}
+      "{{ AllowedIP }}",
+      {% endif %}
+      {% endfor %}
+      ]
+
+- name: Create tunnel configuration file for client
+  # desc: Generates the config file for the client so they can connect to the tunnel
+  when: result_wireguard_peer_lookup.msg == 'line added'
+  delegate_to: localhost
+  become: false
+  ansible.builtin.template:
+    src: client_wireguard.conf
+    dest: "{{ [wireguard_hostdatadir_path, inventory_hostname, _wireguard_tunnel_item.key, _wireguard_peer_item.name + '.conf'] | path_join }}"
+    mode: "700"
+
+- name: Print peer entry for ansible config
+  # desc: Displays the list entry for adding this new peer to the tunnel
+  ansible.builtin.debug:
+    msg: |
+      - name: {{ _wireguard_peer_item.name }}
+        AllowedIPs:
+      {% for AllowedIP in _wireguard_peer_item.AllowedIPs %}
+          - {{ AllowedIP }}
+      {% endfor %}
+        PublicKey: "{{ _wireguard_peer_PublicKey }}"
+      {% if _wireguard_peer_PresharedKey | length > 0 %}
+        PresharedKey: "{{ _wireguard_peer_PresharedKey }}"
+      {% endif %}
+
+- name: Print peer config command for manual configuration
+  # desc: Displays the CLI command for adding this peer to the tunnel manuallys
+  ansible.builtin.debug:
+    msg: >-
+      sudo wg set
+      {{ _wireguard_tunnel_item.key }}
+      peer {{ _wireguard_peer_PublicKey }}
+      {% if _wireguard_peer_PresharedKey | length > 0 %}
+      preshared-key <(echo {{ _wireguard_peer_PresharedKey }})
+      {% endif %}
+      allowed-ips {{ _wireguard_peer_item.AllowedIPs | join(',') }}
+
+- name: Amend peers variable for public key
+  # desc: When the public key for the peer was not defined in the variable structure, ensure that the propery has a value now
+  when: _wireguard_peer_item.PublicKey | default('', true) | length == 0
+  set_fact:
+    peers_amended: "{{ \
+      peers_amended[:_wireguard_peer_idx] \
+      + [peers_amended[_wireguard_peer_idx] | combine({'PublicKey': _wireguard_peer_PublicKey}, recursive=true)] \
+      + peers_amended[_wireguard_peer_idx + 1 :] \
+      }}"
+
+- name: Amend peers variable for preshared key
+  # desc: When the public key for the peer was not defined in the variable structure, ensure that the propery has a value now
+  when:
+    - _wireguard_peer_item.PresharedKey | default('generate', false) == 'generate'
+    - _wireguard_peer_PresharedKey | default('', true) | length >= 0
+  set_fact:
+    peers_amended: "{{ \
+      peers_amended[:_wireguard_peer_idx] \
+      + [peers_amended[_wireguard_peer_idx] | combine({'PresharedKey': _wireguard_peer_PresharedKey}, recursive=true)] \
+      + peers_amended[_wireguard_peer_idx + 1 :] \
+      }}"
+
+- name: Unset secrets
+  # desc: Avoid leaking the private or the preshared key somewhere.
+  no_log: "{{ wireguard_no_log }}"
+  ansible.builtin.set_fact:
+    result_wireguard_peer_PrivateKey: ""
+    result_wireguard_peer_PresharedKey_serverside: ""
+    result_wireguard_peer_PresharedKey_generated: ""
+    _wireguard_peer_PresharedKey: ""

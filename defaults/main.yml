@@ -14,4 +14,6 @@ wireguard_tunnels:
   #     - AllowedIPs:
   #         - 192.168.0.2/24
   #       PublicKey: KEYHERE
+wireguard_print_peer_configuration: true
+wireguard_no_log: true
 ...
