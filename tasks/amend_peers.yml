@@ -117,7 +117,9 @@
 
 - name: Create tunnel configuration file for client
   # desc: Generates the config file for the client so they can connect to the tunnel
-  when: result_wireguard_peer_lookup.msg == 'line added'
+  when:
+    - result_wireguard_peer_lookup.msg == 'line added'
+    - _wireguard_peer_item.PublicKey | default('', true) | length == 0
   delegate_to: localhost
   become: false
   ansible.builtin.template:
@@ -163,9 +165,7 @@
 
 - name: Amend peers variable for preshared key
   # desc: When the public key for the peer was not defined in the variable structure, ensure that the propery has a value now
-  when:
-    - _wireguard_peer_item.PresharedKey | default('generate', false) == 'generate'
-    - _wireguard_peer_PresharedKey | default('', true) | length >= 0
+  when: _wireguard_peer_PresharedKey | default('', true) | length > 0
   set_fact:
     peers_amended: "{{ \
       peers_amended[:_wireguard_peer_idx] \

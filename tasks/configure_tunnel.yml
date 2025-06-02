@@ -166,7 +166,7 @@
       [Peer]{% if peer.name is defined %} # Name = {{ peer.name }}{% endif +%}
       PublicKey = {{ peer.PublicKey }}
       AllowedIPs = {{ peer.AllowedIPs | sort | map('ansible.utils.ipaddr', 'host/prefix') | join(',') }}
-      {% if peer.PresharedKey is defined %}
+      {% if peer.PresharedKey | default('', true) | length > 0 %}
       PresharedKey = {{ peer.PresharedKey }}
       {% endif %}
 
