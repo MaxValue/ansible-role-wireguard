@@ -19,7 +19,7 @@ wireguard_no_log: true
 wireguard_configure_dns: false
 wireguard_host_tunnel: wg0
 wireguard_dns_upstream: 9.9.9.9 149.112.112.112
-wireguard_fqdn: "{{ ( '//' + wireguard_tunnels[wireguard_host_tunnel].Endpoint ) | urlsplit('hostname') }}"
+wireguard_fqdn: "{{ ('//' + wireguard_tunnels[wireguard_host_tunnel].Endpoint) | urlsplit('hostname') }}"
 wireguard_dns_redirects:
   - "{{ wireguard_tunnels[wireguard_host_tunnel].Address | ansible.utils.ipaddr('address') }} {{ wireguard_fqdn }}"
 ...

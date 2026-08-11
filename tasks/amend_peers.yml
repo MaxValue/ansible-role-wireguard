@@ -156,7 +156,7 @@
 - name: Amend peers variable for public key
   # desc: When the public key for the peer was not defined in the variable structure, ensure that the propery has a value now
   when: _wireguard_peer_item.PublicKey | default('', true) | length == 0
-  set_fact:
+  ansible.builtin.set_fact:
     peers_amended: "{{ \
       peers_amended[:_wireguard_peer_idx] \
       + [peers_amended[_wireguard_peer_idx] | combine({'PublicKey': _wireguard_peer_PublicKey}, recursive=true)] \
@@ -166,7 +166,7 @@
 - name: Amend peers variable for preshared key
   # desc: When the public key for the peer was not defined in the variable structure, ensure that the propery has a value now
   when: _wireguard_peer_PresharedKey | default('', true) | length > 0
-  set_fact:
+  ansible.builtin.set_fact:
     peers_amended: "{{ \
       peers_amended[:_wireguard_peer_idx] \
       + [peers_amended[_wireguard_peer_idx] | combine({'PresharedKey': _wireguard_peer_PresharedKey}, recursive=true)] \
