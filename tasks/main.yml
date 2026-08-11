@@ -69,4 +69,39 @@
   loop: "{{ wireguard_tunnels | dict2items }}"
   loop_control:
     loop_var: _wireguard_tunnel_item
+
+- name: Configure DNS for host tunnel
+  # desc: If a host tunnel is defined and DNS should be configured FIXME
+  when:
+    - wireguard_configure_dns | default(false)
+    - wireguard_host_tunnel | default(false)
+  become: true
+  block:
+    - name: Create config dir for systemd-resolved override file
+      # desc: Creates the config directory for storing the systemd-resolved file to override settings
+      ansible.builtin.file:
+        owner: root
+        group: root
+        mode: "755"
+        path: "/etc/systemd/resolved.conf.d"
+        state: directory
+
+    - name: Create override config file for systemd-resolved
+      ansible.builtin.template:
+        src: systemd-resolved.conf
+        dest: "/etc/systemd/resolved.conf.d/wireguard_dns.conf"
+        owner: root
+        group: root
+        mode: "644"
+      notify:
+        - Restart systemd-resolved
+
+    - name: Set local routes for tunnel
+      ansible.builtin.lineinfile:
+        state: present
+        path: /etc/hosts
+        line: "{{ item }}"
+        regexp: "[^\\n]+{{ item | split | last }}"
+        insertafter: EOF
+      loop: "{{ wireguard_dns_redirects }}"
 ...

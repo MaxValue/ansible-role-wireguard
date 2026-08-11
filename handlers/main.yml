@@ -4,3 +4,10 @@
   become: true
   ansible.builtin.systemd_service:
     daemon_reload: true
+
+- name: Restart systemd-resolved
+  # desc: When the systemd-resolved config has changed we need to get the daemon to apply the new config
+  become: true
+  ansible.builtin.systemd_service:
+    name: systemd-resolved
+    state: restarted

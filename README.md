@@ -46,6 +46,26 @@ The optional variable `wireguard_tunnels` defines the tunnels to be configured.
 
 The optional variable `wireguard_print_peer_configuration` defines whether to print the needed configuration changes to permanently enable the new peer. Be aware that this can leak key information (the PresharedKey to be precise). Turn this off to hide any secrets from the logs.
 
+    wireguard_configure_dns: false
+
+If the optional variable `wireguard_configure_dns` is set to `true` the role will configure systemd-resolved DNS stub listener to be accessible via the tunnel and make systemd-resolved consider entries in /etc/hosts as entries for the DNS cache.
+
+    wireguard_host_tunnel: wg0
+
+The optional variable `wireguard_host_tunnel` defines the tunnel which should have the systemd-resolved DNS listener.
+
+    wireguard_dns_upstream: 9.9.9.9 149.112.112.112
+
+The optional variable `wireguard_dns_upstream` sets the upstream DNS servers for the systemd-resolved DNS stub listener.
+
+    wireguard_fqdn: 
+
+The optional variable `wireguard_fqdn` sets the fully qualified host nameof the host which should be rerouted to the wireguard tunnel IP address. By default this is the hostname of the `Endpoint` value from the tunnel defined by `wireguard_host_tunnel` (wg0 by default).
+
+    wireguard_dns_redirects:
+
+The optional variable `wireguard_dns_redirects` specifies a list of domains redirects which should set in the /etc/hosts file. By default it contains only one entry: the `wireguard_fqdn` to the wireguard tunnel IP address of the wireguard tunnel as specified by `wireguard_host_tunnel` (wg0 by default).
+
 ### Internal variables
 
 These are variables internally created by the role.
@@ -164,6 +184,8 @@ The internal variable `result_wireguard_Peer_PresharedKey` stores the newly gene
                       - 192.168.0.2/24
                     PublicKey: "QLGVfS9r+jwqkl0iEfdyfqGIMhitmcMqsarUabvMXSY="
                     PresharedKey: "h8pxIv1mJOG0IC89/ZbPHnOneZOVdtMyia8E1wuCrVE="
+            wireguard_configure_dns: true
+            wireguard_host_tunnel: wg0
     ...
 
 ## License
